@@ -11,35 +11,9 @@ const CATS = {
 };
 
 // ── 샘플 사건 데이터 (year: 음수=기원전) ──────────────────
-const EVENTS = [
-  { y: -2560, lat: 29.98, lng: 31.13,  c: "thought",  t: "기자 대피라미드 건설", d: "쿠푸왕의 대피라미드가 이집트 기자에 세워지다." },
-  { y: -1754, lat: 32.54, lng: 44.42,  c: "thought",  t: "함무라비 법전", d: "바빌론에서 성문법전이 반포되다." },
-  { y: -551,  lat: 35.60, lng: 116.99, c: "thought",  t: "공자 탄생", d: "유교의 시조 공자가 노나라 취푸에서 태어나다." },
-  { y: -563,  lat: 27.49, lng: 83.28,  c: "religion", t: "석가모니 탄생", d: "룸비니에서 불교의 창시자가 태어나다." },
-  { y: -334,  lat: 29.94, lng: 52.89,  c: "war",      t: "알렉산더 동방원정", d: "마케도니아가 페르시아 제국을 정복하다." },
-  { y: -221,  lat: 34.27, lng: 108.95, c: "war",      t: "진(秦)의 중국 통일", d: "진시황이 최초로 중국을 통일하다." },
-  { y: 79,    lat: 40.75, lng: 14.49,  c: "disaster", t: "베수비오 화산 폭발", d: "폼페이가 화산재에 묻히다." },
-  { y: 610,   lat: 21.42, lng: 39.83,  c: "religion", t: "이슬람교 성립", d: "메카에서 무함마드가 계시를 받다." },
-  { y: 918,   lat: 37.97, lng: 126.55, c: "war",      t: "고려 건국", d: "왕건이 개성에서 고려를 세우다." },
-  { y: 1096,  lat: 31.78, lng: 35.22,  c: "war",      t: "1차 십자군", d: "예루살렘을 향한 십자군 원정이 시작되다." },
-  { y: 1206,  lat: 47.92, lng: 106.92, c: "war",      t: "몽골 제국 성립", d: "칭기즈 칸이 몽골 부족을 통일하다." },
-  { y: 1443,  lat: 37.58, lng: 126.98, c: "thought",  t: "훈민정음 창제", d: "세종이 한글을 만들다." },
-  { y: 1450,  lat: 50.00, lng: 8.27,   c: "science",  t: "활판 인쇄술", d: "구텐베르크가 금속활자 인쇄를 시작하다." },
-  { y: 1492,  lat: 24.0,  lng: -74.5,  c: "war",      t: "콜럼버스 신대륙 도착", d: "유럽과 아메리카가 연결되다." },
-  { y: 1592,  lat: 35.10, lng: 129.04, c: "war",      t: "임진왜란", d: "일본의 침략으로 조선에서 전쟁이 벌어지다." },
-  { y: 1687,  lat: 51.51, lng: -0.13,  c: "science",  t: "프린키피아 출간", d: "뉴턴이 만유인력 법칙을 발표하다." },
-  { y: 1776,  lat: 39.95, lng: -75.16, c: "war",      t: "미국 독립선언", d: "필라델피아에서 독립이 선언되다." },
-  { y: 1789,  lat: 48.85, lng: 2.35,   c: "war",      t: "프랑스 혁명", d: "파리에서 시민혁명이 일어나다." },
-  { y: 1859,  lat: 51.51, lng: -0.13,  c: "science",  t: "종의 기원", d: "다윈이 진화론을 발표하다." },
-  { y: 1914,  lat: 43.85, lng: 18.41,  c: "war",      t: "제1차 세계대전", d: "사라예보 사건으로 대전이 발발하다." },
-  { y: 1939,  lat: 52.23, lng: 21.01,  c: "war",      t: "제2차 세계대전", d: "독일의 폴란드 침공으로 전쟁이 시작되다." },
-  { y: 1969,  lat: 28.57, lng: -80.65, c: "science",  t: "아폴로 11호 달 착륙", d: "인류가 처음으로 달을 밟다." },
-  { y: 1989,  lat: 52.52, lng: 13.40,  c: "war",      t: "베를린 장벽 붕괴", d: "냉전의 상징이 무너지다." },
-  { y: 1991,  lat: 46.23, lng: 6.05,   c: "science",  t: "월드와이드웹 공개", d: "CERN에서 웹이 세상에 공개되다." },
-  { y: 2007,  lat: 37.33, lng: -122.03,c: "science",  t: "스마트폰 시대", d: "쿠퍼티노에서 아이폰이 발표되다." },
-];
+// 사건 데이터는 events.json에서 로드
 
-const MIN_Y = -2600, MAX_Y = 2030;
+const MIN_Y = -4000, MAX_Y = 2030;
 
 const BASE_RATE = 25;          // 1배속 = 25년/초
 const FADE_YEARS = 60;         // 사건이 점+박스로 떠 있는 연도 폭
@@ -77,6 +51,7 @@ const C_BORDER = "#2c4a38";   // 국경선
 export default function Chronos() {
   const [geo, setGeo] = useState(null);
   const [mapErr, setMapErr] = useState(false);
+  const [events, setEvents] = useState([]);
   const [year, setYear] = useState(MIN_Y);
   const [playing, setPlaying] = useState(false);
   const [mult, setMult] = useState(1);
@@ -95,6 +70,16 @@ export default function Chronos() {
       .then((r) => r.json())
       .then((j) => { if (alive) setGeo(j); })
       .catch(() => { if (alive) setMapErr(true); });
+    return () => { alive = false; };
+  }, []);
+
+  // 사건 데이터 로드 (연도순 정렬되어 있음)
+  useEffect(() => {
+    let alive = true;
+    fetch("/events.json")
+      .then((r) => r.json())
+      .then((j) => { if (alive) setEvents(j); })
+      .catch(() => {});
     return () => { alive = false; };
   }, []);
 
@@ -184,8 +169,8 @@ export default function Chronos() {
 
   // 현재 시점에 "떠 있는" 사건만 (등장 후 FADE_YEARS 동안). 누적하지 않음
   const active = useMemo(
-    () => EVENTS.filter((e) => year >= e.y && year < e.y + FADE_YEARS),
-    [year]
+    () => events.filter((e) => year >= e.y && year < e.y + FADE_YEARS),
+    [year, events]
   );
 
   const handlePlay = () => {
