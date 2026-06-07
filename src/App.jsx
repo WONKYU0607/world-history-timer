@@ -1,13 +1,13 @@
 import React, { useState, useEffect, useRef, useMemo } from "react";
 import * as d3 from "d3";
 
-// ── 카테고리 정의 (전 분야) ──────────────────────────────
+// ── 카테고리 (마커 색 구분용. 하단 범례는 제거) ────────────
 const CATS = {
-  war:     { ko: "전쟁·정치", color: "#b3402e" },
-  thought: { ko: "문화·사상", color: "#c98a2b" },
-  science: { ko: "과학·기술", color: "#2f6b5e" },
-  religion:{ ko: "종교",      color: "#7a5ba6" },
-  disaster:{ ko: "재난",      color: "#555049" },
+  war:     { ko: "전쟁·정치", color: "#c0392b" },
+  thought: { ko: "문화·사상", color: "#d68910" },
+  science: { ko: "과학·기술", color: "#1e8449" },
+  religion:{ ko: "종교",      color: "#6c3483" },
+  disaster:{ ko: "재난",      color: "#4d5656" },
 };
 
 // ── 샘플 사건 데이터 (year: 음수=기원전) ──────────────────
@@ -41,7 +41,6 @@ const EVENTS = [
 
 const MIN_Y = -2600, MAX_Y = 2030;
 
-// 연도 표기
 function fmtYear(y) {
   const r = Math.round(y);
   return r < 0 ? `기원전 ${-r}년` : `서기 ${r}년`;
@@ -50,13 +49,19 @@ function fmtYear(y) {
 const MAP_URL =
   "https://cdn.jsdelivr.net/gh/nvkelso/natural-earth-vector@master/geojson/ne_110m_admin_0_countries.geojson";
 
+// ── 현실감 색상 ──────────────────────────────────────────
+const C_OCEAN  = "#9ec5e8";   // 바다
+const C_LAND   = "#d8d2b0";   // 육지 (옅은 베이지-카키)
+const C_BORDER = "#b3a98a";   // 국경선
+const C_GRAT   = "#ffffff";   // 경위선
+
 export default function Chronos() {
   const [geo, setGeo] = useState(null);
   const [mapErr, setMapErr] = useState(false);
   const [year, setYear] = useState(MIN_Y);
   const [playing, setPlaying] = useState(false);
   const [sel, setSel] = useState(null);
-  const [size, setSize] = useState({ w: 360, h: 180 });
+  const [size, setSize] = useState({ w: 360, h: 640 });
   const wrapRef = useRef(null);
   const rafRef = useRef(null);
 
@@ -70,19 +75,15 @@ export default function Chronos() {
     return () => { alive = false; };
   }, []);
 
-  // 반응형 크기
+  // 화면 전체 크기 추적
   useEffect(() => {
-    const el = wrapRef.current;
-    if (!el) return;
-    const ro = new ResizeObserver(() => {
-      const w = el.clientWidth;
-      setSize({ w, h: w / 2 });
-    });
-    ro.observe(el);
-    return () => ro.disconnect();
+    const update = () => setSize({ w: window.innerWidth, h: window.innerHeight });
+    update();
+    window.addEventListener("resize", update);
+    return () => window.removeEventListener("resize", update);
   }, []);
 
-  // 투영
+  // 투영 — 화면 전체에 맞춤
   const projection = useMemo(() => {
     return d3.geoEquirectangular()
       .fitSize([size.w, size.h], { type: "Sphere" });
@@ -94,7 +95,7 @@ export default function Chronos() {
   useEffect(() => {
     if (!playing) return;
     let last = performance.now();
-    const speed = (MAX_Y - MIN_Y) / 18000; // 18초에 전체 주파
+    const speed = (MAX_Y - MIN_Y) / 18000;
     const tick = (now) => {
       const dt = now - last; last = now;
       setYear((y) => {
@@ -108,7 +109,6 @@ export default function Chronos() {
     return () => cancelAnimationFrame(rafRef.current);
   }, [playing]);
 
-  // 현재 시점까지 등장한 사건
   const shown = useMemo(() => EVENTS.filter((e) => e.y <= year), [year]);
 
   const handlePlay = () => {
@@ -117,89 +117,71 @@ export default function Chronos() {
   };
 
   return (
-    <div style={styles.root}>
+    <div ref={wrapRef} style={styles.root}>
       <style>{fontCss}</style>
 
-      {/* 헤더 */}
+      {/* 지도 (화면 전체 배경) */}
+      <svg width={size.w} height={size.h} style={styles.svg}>
+        <rect x={0} y={0} width={size.w} height={size.h} fill={C_OCEAN} />
+        <path d={pathGen(d3.geoGraticule10())} fill="none"
+              stroke={C_GRAT} strokeWidth={0.5} opacity={0.35} />
+        {geo && geo.features.map((f, i) => (
+          <path key={i} d={pathGen(f)} fill={C_LAND}
+                stroke={C_BORDER} strokeWidth={0.4} />
+        ))}
+        {mapErr && (
+          <text x={size.w / 2} y={size.h / 2} textAnchor="middle"
+                fill="#fff" fontSize={12}>
+            지도 데이터를 불러오지 못했습니다
+          </text>
+        )}
+        {/* 사건 마커 */}
+        {projection && shown.map((e, i) => {
+          const p = projection([e.lng, e.lat]);
+          if (!p) return null;
+          const isLatest = e === shown[shown.length - 1];
+          const col = CATS[e.c].color;
+          return (
+            <g key={i} transform={`translate(${p[0]},${p[1]})`}
+               style={{ cursor: "pointer" }}
+               onClick={() => setSel(e)}>
+              {isLatest && (
+                <circle r={8} fill={col} opacity={0.25}>
+                  <animate attributeName="r" values="4;13;4"
+                           dur="1.6s" repeatCount="indefinite" />
+                  <animate attributeName="opacity" values="0.45;0;0.45"
+                           dur="1.6s" repeatCount="indefinite" />
+                </circle>
+              )}
+              <circle r={isLatest ? 4.5 : 3.2} fill={col}
+                      stroke="#fff" strokeWidth={1.2} />
+            </g>
+          );
+        })}
+      </svg>
+
+      {/* 상단 타이틀 (오버레이) */}
       <header style={styles.header}>
-        <div style={styles.title}>CHRONOS</div>
-        <div style={styles.subtitle}>세계사 연대기 지도</div>
+        <span style={styles.title}>CHRONOS</span>
       </header>
 
-      {/* 지도 */}
-      <div ref={wrapRef} style={styles.mapWrap}>
-        <svg width={size.w} height={size.h} style={styles.svg}>
-          {/* 바다 */}
-          <rect x={0} y={0} width={size.w} height={size.h} fill="#dcd0b4" />
-          {/* 경위선 */}
-          <path d={pathGen(d3.geoGraticule10())} fill="none"
-                stroke="#c4b48f" strokeWidth={0.5} />
-          {/* 육지 */}
-          {geo && geo.features.map((f, i) => (
-            <path key={i} d={pathGen(f)} fill="#bfa873"
-                  stroke="#a8895a" strokeWidth={0.4} />
-          ))}
-          {mapErr && (
-            <text x={size.w / 2} y={size.h / 2} textAnchor="middle"
-                  fill="#7a6a48" fontSize={11}>
-              지도 데이터를 불러오지 못했습니다
-            </text>
-          )}
-          {/* 사건 마커 */}
-          {projection && shown.map((e, i) => {
-            const p = projection([e.lng, e.lat]);
-            if (!p) return null;
-            const isLatest = e === shown[shown.length - 1];
-            const col = CATS[e.c].color;
-            return (
-              <g key={i} transform={`translate(${p[0]},${p[1]})`}
-                 style={{ cursor: "pointer" }}
-                 onClick={() => setSel(e)}>
-                {isLatest && (
-                  <circle r={8} fill={col} opacity={0.25}>
-                    <animate attributeName="r" values="4;12;4"
-                             dur="1.6s" repeatCount="indefinite" />
-                    <animate attributeName="opacity" values="0.4;0;0.4"
-                             dur="1.6s" repeatCount="indefinite" />
-                  </circle>
-                )}
-                <circle r={isLatest ? 4 : 3} fill={col}
-                        stroke="#f5edd6" strokeWidth={1} />
-              </g>
-            );
-          })}
-        </svg>
-      </div>
-
-      {/* 현재 연도 */}
-      <div style={styles.yearLine}>
-        <span style={styles.yearBig}>{fmtYear(year)}</span>
-        <span style={styles.count}>· 누적 사건 {shown.length}건</span>
-      </div>
-
-      {/* 타임라인 */}
-      <div style={styles.timeline}>
-        <button onClick={handlePlay} style={styles.playBtn}>
-          {playing ? "❚❚" : "▶"}
-        </button>
-        <input
-          type="range" min={MIN_Y} max={MAX_Y} step={1}
-          value={year}
-          onChange={(e) => { setPlaying(false); setYear(+e.target.value); }}
-          style={styles.range}
-        />
-      </div>
-      <div style={styles.scaleRow}>
-        <span>기원전 2600</span><span>0</span><span>현재</span>
-      </div>
-
-      {/* 범례 */}
-      <div style={styles.legend}>
-        {Object.values(CATS).map((c) => (
-          <span key={c.ko} style={styles.legendItem}>
-            <i style={{ ...styles.dot, background: c.color }} />{c.ko}
-          </span>
-        ))}
+      {/* 하단 컨트롤 (오버레이) */}
+      <div style={styles.bottom}>
+        <div style={styles.yearLine}>
+          <span style={styles.yearBig}>{fmtYear(year)}</span>
+          <span style={styles.count}>· 누적 {shown.length}건</span>
+        </div>
+        <div style={styles.timeline}>
+          <button onClick={handlePlay} style={styles.playBtn}>
+            {playing ? "❚❚" : "▶"}
+          </button>
+          <input
+            type="range" min={MIN_Y} max={MAX_Y} step={1}
+            value={year}
+            onChange={(e) => { setPlaying(false); setYear(+e.target.value); }}
+            style={styles.range}
+          />
+        </div>
       </div>
 
       {/* 사건 상세 시트 */}
@@ -226,69 +208,63 @@ const fontCss =
 const FB = "'Gowun Batang', serif";
 const styles = {
   root: {
-    fontFamily: FB, background: "#f5edd6", color: "#3a3024",
-    minHeight: "100vh", padding: "16px 14px 28px",
-    boxSizing: "border-box", maxWidth: 520, margin: "0 auto",
+    position: "fixed", inset: 0, overflow: "hidden",
+    background: C_OCEAN, fontFamily: FB, color: "#2c2c2c",
   },
-  header: { textAlign: "center", marginBottom: 12 },
+  svg: { position: "absolute", inset: 0, display: "block" },
+  header: {
+    position: "absolute", top: 0, left: 0, right: 0,
+    textAlign: "center", padding: "12px 0 18px",
+    background: "linear-gradient(rgba(20,40,60,.35), rgba(20,40,60,0))",
+    pointerEvents: "none",
+  },
   title: {
-    fontFamily: "'Cinzel', serif", fontWeight: 700, fontSize: 30,
-    letterSpacing: 6, color: "#5c4326",
+    fontFamily: "'Cinzel', serif", fontWeight: 700, fontSize: 22,
+    letterSpacing: 6, color: "#fff", textShadow: "0 1px 4px rgba(0,0,0,.4)",
   },
-  subtitle: { fontSize: 13, color: "#8a7350", letterSpacing: 2, marginTop: 2 },
-  mapWrap: {
-    width: "100%", borderRadius: 4, overflow: "hidden",
-    border: "2px solid #b09a6a", boxShadow: "0 4px 14px rgba(90,67,38,.25)",
+  bottom: {
+    position: "absolute", left: 0, right: 0, bottom: 0,
+    padding: "20px 16px calc(18px + env(safe-area-inset-bottom))",
+    background: "linear-gradient(rgba(20,40,60,0), rgba(20,40,60,.55))",
   },
-  svg: { display: "block" },
-  yearLine: { textAlign: "center", margin: "14px 0 6px" },
+  yearLine: { textAlign: "center", marginBottom: 8 },
   yearBig: {
     fontFamily: "'Cinzel', serif", fontSize: 22, fontWeight: 700,
-    color: "#5c4326",
+    color: "#fff", textShadow: "0 1px 4px rgba(0,0,0,.5)",
   },
-  count: { fontSize: 13, color: "#8a7350", marginLeft: 6 },
+  count: { fontSize: 13, color: "#eef3f7", marginLeft: 6 },
   timeline: { display: "flex", alignItems: "center", gap: 10 },
   playBtn: {
-    flex: "0 0 auto", width: 42, height: 42, borderRadius: "50%",
-    border: "none", background: "#5c4326", color: "#f5edd6",
-    fontSize: 15, cursor: "pointer",
+    flex: "0 0 auto", width: 46, height: 46, borderRadius: "50%",
+    border: "none", background: "#fff", color: "#1b3a52",
+    fontSize: 16, cursor: "pointer", boxShadow: "0 2px 8px rgba(0,0,0,.3)",
   },
-  range: { flex: 1, accentColor: "#b3402e", height: 4 },
-  scaleRow: {
-    display: "flex", justifyContent: "space-between",
-    fontSize: 10, color: "#a08c66", marginTop: 4, padding: "0 2px",
-  },
-  legend: {
-    display: "flex", flexWrap: "wrap", gap: "6px 14px",
-    justifyContent: "center", marginTop: 16, fontSize: 12, color: "#6b5a3e",
-  },
-  legendItem: { display: "inline-flex", alignItems: "center", gap: 5 },
-  dot: { width: 9, height: 9, borderRadius: "50%", display: "inline-block" },
+  range: { flex: 1, accentColor: "#fff", height: 4 },
   sheet: {
-    position: "fixed", inset: 0, background: "rgba(40,30,15,.45)",
+    position: "fixed", inset: 0, background: "rgba(20,30,40,.45)",
     display: "flex", alignItems: "flex-end", justifyContent: "center",
     zIndex: 10,
   },
   card: {
-    background: "#f5edd6", width: "100%", maxWidth: 520,
+    background: "#fbf9f2", width: "100%", maxWidth: 520,
     borderRadius: "16px 16px 0 0", padding: "22px 22px 30px",
-    borderTop: "3px solid #b3402e",
+    borderTop: "3px solid #1b3a52",
   },
   cardTag: {
-    display: "inline-block", color: "#f5edd6", fontSize: 11,
+    display: "inline-block", color: "#fff", fontSize: 11,
     padding: "3px 10px", borderRadius: 20, letterSpacing: 1,
   },
   cardYear: {
-    fontFamily: "'Cinzel', serif", fontSize: 15, color: "#8a7350",
+    fontFamily: "'Cinzel', serif", fontSize: 15, color: "#888",
     marginTop: 12,
   },
   cardTitle: {
-    fontSize: 22, fontWeight: 700, color: "#4a3a22", margin: "4px 0 10px",
+    fontSize: 22, fontWeight: 700, color: "#2c2c2c", margin: "4px 0 10px",
   },
-  cardDesc: { fontSize: 15, lineHeight: 1.6, color: "#5a4a32" },
+  cardDesc: { fontSize: 15, lineHeight: 1.6, color: "#4a4a4a" },
   close: {
     marginTop: 18, width: "100%", padding: "12px", border: "none",
-    borderRadius: 10, background: "#5c4326", color: "#f5edd6",
+    borderRadius: 10, background: "#1b3a52", color: "#fff",
     fontSize: 15, cursor: "pointer", fontFamily: FB,
   },
 };
