@@ -66,6 +66,8 @@ export default function Chronos() {
   const [sel, setSel] = useState(null);
   const [imgError, setImgError] = useState(false);
   const [size, setSize] = useState({ w: 360, h: 640 });
+  const [zt, setZt] = useState({ k: 1, x: 0, y: 0 });
+  const svgRef = useRef(null);
   const wrapRef = useRef(null);
   const rafRef = useRef(null);
 
@@ -94,6 +96,18 @@ export default function Chronos() {
   }, [size]);
 
   const pathGen = useMemo(() => d3.geoPath(projection), [projection]);
+
+  // 줌/팬 (핀치·휠·드래그). 최대 4배, 더블클릭 줌 비활성
+  useEffect(() => {
+    if (!svgRef.current) return;
+    const sel = d3.select(svgRef.current);
+    const zoom = d3.zoom()
+      .scaleExtent([1, 4])
+      .translateExtent([[0, 0], [size.w, size.h]])
+      .on("zoom", (e) => setZt({ k: e.transform.k, x: e.transform.x, y: e.transform.y }));
+    sel.call(zoom).on("dblclick.zoom", null);
+    return () => sel.on(".zoom", null);
+  }, [size]);
 
   // 위성 이미지가 깔릴 영역 (equirectangular 전체 범위)
   const imgRect = useMemo(() => {
@@ -133,47 +147,53 @@ export default function Chronos() {
       <style>{fontCss}</style>
 
       {/* 지도 (화면 전체 배경) */}
-      <svg width={size.w} height={size.h} style={styles.svg}>
+      <svg ref={svgRef} width={size.w} height={size.h} style={styles.svg}>
+        {/* 바다 배경 — 줌 영향 없이 항상 화면 전체 */}
         <rect x={0} y={0} width={size.w} height={size.h} fill={C_OCEAN} />
 
-        {/* 위성 텍스처 (정상) / 벡터 지도 (폴백) */}
-        {!imgError && imgRect ? (
-          <image
-            href={EARTH_URL} xlinkHref={EARTH_URL}
-            x={imgRect.x} y={imgRect.y} width={imgRect.w} height={imgRect.h}
-            preserveAspectRatio="none"
-            onError={() => setImgError(true)}
-          />
-        ) : (
-          geo && geo.features.map((f, i) => (
-            <path key={i} d={pathGen(f)} fill={C_LAND}
-                  stroke={C_BORDER} strokeWidth={0.4} />
-          ))
-        )}
+        {/* 줌/팬 적용 그룹 */}
+        <g transform={`translate(${zt.x},${zt.y}) scale(${zt.k})`}>
+          {/* 위성 텍스처 (정상) / 벡터 지도 (폴백) */}
+          {!imgError && imgRect ? (
+            <image
+              href={EARTH_URL} xlinkHref={EARTH_URL}
+              x={imgRect.x} y={imgRect.y} width={imgRect.w} height={imgRect.h}
+              preserveAspectRatio="none"
+              onError={() => setImgError(true)}
+            />
+          ) : (
+            geo && geo.features.map((f, i) => (
+              <path key={i} d={pathGen(f)} fill={C_LAND}
+                    stroke={C_BORDER} strokeWidth={0.4 / zt.k} />
+            ))
+          )}
 
-        {/* 사건 마커 */}
-        {projection && shown.map((e, i) => {
-          const p = projection([e.lng, e.lat]);
-          if (!p) return null;
-          const isLatest = e === shown[shown.length - 1];
-          const col = CATS[e.c].color;
-          return (
-            <g key={i} transform={`translate(${p[0]},${p[1]})`}
-               style={{ cursor: "pointer" }}
-               onClick={() => setSel(e)}>
-              {isLatest && (
-                <circle r={8} fill={col} opacity={0.25}>
-                  <animate attributeName="r" values="4;13;4"
-                           dur="1.6s" repeatCount="indefinite" />
-                  <animate attributeName="opacity" values="0.45;0;0.45"
-                           dur="1.6s" repeatCount="indefinite" />
-                </circle>
-              )}
-              <circle r={isLatest ? 4.5 : 3.2} fill={col}
-                      stroke="#fff" strokeWidth={1.2} />
-            </g>
-          );
-        })}
+          {/* 사건 마커 — 배율로 나눠 화면상 크기 고정 */}
+          {projection && shown.map((e, i) => {
+            const p = projection([e.lng, e.lat]);
+            if (!p) return null;
+            const isLatest = e === shown[shown.length - 1];
+            const col = CATS[e.c].color;
+            const k = zt.k;
+            return (
+              <g key={i} transform={`translate(${p[0]},${p[1]})`}
+                 style={{ cursor: "pointer" }}
+                 onClick={() => setSel(e)}>
+                {isLatest && (
+                  <circle r={8 / k} fill={col} opacity={0.25}>
+                    <animate attributeName="r"
+                             values={`${4 / k};${13 / k};${4 / k}`}
+                             dur="1.6s" repeatCount="indefinite" />
+                    <animate attributeName="opacity" values="0.45;0;0.45"
+                             dur="1.6s" repeatCount="indefinite" />
+                  </circle>
+                )}
+                <circle r={(isLatest ? 4.5 : 3.2) / k} fill={col}
+                        stroke="#fff" strokeWidth={1.2 / k} />
+              </g>
+            );
+          })}
+        </g>
       </svg>
 
       {/* 상단 타이틀 (오버레이) */}
@@ -227,7 +247,7 @@ const styles = {
     position: "fixed", inset: 0, overflow: "hidden",
     background: C_OCEAN, fontFamily: FB, color: "#2c2c2c",
   },
-  svg: { position: "absolute", inset: 0, display: "block" },
+  svg: { position: "absolute", inset: 0, display: "block", touchAction: "none" },
   header: {
     position: "absolute", top: 0, left: 0, right: 0,
     textAlign: "center", padding: "12px 0 18px",
