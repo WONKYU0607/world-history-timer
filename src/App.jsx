@@ -41,6 +41,11 @@ const EVENTS = [
 
 const MIN_Y = -2600, MAX_Y = 2030;
 
+const BASE_RATE = 25;          // 1배속 = 25년/초 (느리게)
+const FADE_YEARS = 120;        // 사건이 점+박스로 떠 있는 연도 폭
+const MULTS = [0.5, 0.7, 1, 2, 3, 4];  // 배속 옵션
+const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
+
 function fmtYear(y) {
   const r = Math.round(y);
   return r < 0 ? `기원전 ${-r}년` : `서기 ${r}년`;
@@ -72,6 +77,7 @@ export default function Chronos() {
   const [mapErr, setMapErr] = useState(false);
   const [year, setYear] = useState(MIN_Y);
   const [playing, setPlaying] = useState(false);
+  const [mult, setMult] = useState(1);
   const [sel, setSel] = useState(null);
   const [imgError, setImgError] = useState(false);
   const [size, setSize] = useState({ w: 360, h: 640 });
@@ -156,11 +162,11 @@ export default function Chronos() {
   // 줌 배율에 따라 표시할 라벨 개수 (1배→큰 나라 위주, 8배→전부)
   const visCount = Math.round(16 + (labels.length - 16) * Math.min(1, (zt.k - 1) / 7));
 
-  // 재생 애니메이션
+  // 재생 애니메이션 (배속 반영)
   useEffect(() => {
     if (!playing) return;
     let last = performance.now();
-    const speed = (MAX_Y - MIN_Y) / 18000;
+    const speed = (BASE_RATE * mult) / 1000;   // 년/ms
     const tick = (now) => {
       const dt = now - last; last = now;
       setYear((y) => {
@@ -172,14 +178,19 @@ export default function Chronos() {
     };
     rafRef.current = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(rafRef.current);
-  }, [playing]);
+  }, [playing, mult]);
 
-  const shown = useMemo(() => EVENTS.filter((e) => e.y <= year), [year]);
+  // 현재 시점에 "떠 있는" 사건만 (등장 후 FADE_YEARS 동안). 누적하지 않음
+  const active = useMemo(
+    () => EVENTS.filter((e) => year >= e.y && year < e.y + FADE_YEARS),
+    [year]
+  );
 
   const handlePlay = () => {
     if (year >= MAX_Y) setYear(MIN_Y);
     setPlaying((p) => !p);
   };
+  const jump = (d) => { setPlaying(false); setYear((y) => clamp(y + d, MIN_Y, MAX_Y)); };
 
   return (
     <div ref={wrapRef} style={styles.root}>
@@ -215,27 +226,26 @@ export default function Chronos() {
             ))
           )}
 
-          {/* 사건 마커 — 배율로 나눠 화면상 크기 고정 */}
-          {projection && shown.map((e, i) => {
+          {/* 사건 마커 — 현재 떠 있는 사건만, 배율로 크기 고정 */}
+          {projection && active.map((e, i) => {
             const p = projection([e.lng, e.lat]);
             if (!p) return null;
-            const isLatest = e === shown[shown.length - 1];
             const col = CATS[e.c].color;
             const k = zt.k;
+            const prog = (year - e.y) / FADE_YEARS;        // 0~1
+            const op = prog > 0.8 ? Math.max(0, (1 - prog) / 0.2) : 1;
             return (
-              <g key={i} transform={`translate(${p[0]},${p[1]})`}
-                 style={{ cursor: "pointer" }}
+              <g key={e.y + "_" + i} transform={`translate(${p[0]},${p[1]})`}
+                 opacity={op} style={{ cursor: "pointer" }}
                  onClick={() => setSel(e)}>
-                {isLatest && (
-                  <circle r={8 / k} fill={col} opacity={0.25}>
-                    <animate attributeName="r"
-                             values={`${4 / k};${13 / k};${4 / k}`}
-                             dur="1.6s" repeatCount="indefinite" />
-                    <animate attributeName="opacity" values="0.45;0;0.45"
-                             dur="1.6s" repeatCount="indefinite" />
-                  </circle>
-                )}
-                <circle r={(isLatest ? 4.5 : 3.2) / k} fill={col}
+                <circle r={8 / k} fill={col} opacity={0.25}>
+                  <animate attributeName="r"
+                           values={`${4 / k};${13 / k};${4 / k}`}
+                           dur="1.6s" repeatCount="indefinite" />
+                  <animate attributeName="opacity" values="0.45;0;0.45"
+                           dur="1.6s" repeatCount="indefinite" />
+                </circle>
+                <circle r={4.5 / k} fill={col}
                         stroke="#fff" strokeWidth={1.2 / k} />
               </g>
             );
@@ -255,6 +265,24 @@ export default function Chronos() {
         </g>
       </svg>
 
+      {/* 꼬리박스 — 현재 떠 있는 사건 라벨 (점 위에 떴다 사라짐) */}
+      {projection && active.map((e, i) => {
+        const p = projection([e.lng, e.lat]);
+        if (!p) return null;
+        const sx = zt.x + p[0] * zt.k;
+        const sy = zt.y + p[1] * zt.k;
+        const prog = (year - e.y) / FADE_YEARS;
+        const op = prog > 0.8 ? Math.max(0, (1 - prog) / 0.2) : 1;
+        return (
+          <div key={e.y + "_b" + i}
+               style={{ ...styles.toast, left: sx, top: sy, opacity: op }}
+               onClick={() => setSel(e)}>
+            <span style={styles.toastYear}>{fmtYear(e.y)}</span> {e.t}
+            <span style={styles.toastTail} />
+          </div>
+        );
+      })}
+
       {/* 상단 타이틀 (오버레이) */}
       <header style={styles.header}>
         <span style={styles.title}>CHRONOS</span>
@@ -264,18 +292,27 @@ export default function Chronos() {
       <div style={styles.bottom}>
         <div style={styles.yearLine}>
           <span style={styles.yearBig}>{fmtYear(year)}</span>
-          <span style={styles.count}>· 누적 {shown.length}건</span>
         </div>
         <div style={styles.timeline}>
+          <button onClick={() => jump(-100)} style={styles.skipBtn}>◀◀</button>
           <button onClick={handlePlay} style={styles.playBtn}>
             {playing ? "❚❚" : "▶"}
           </button>
+          <button onClick={() => jump(100)} style={styles.skipBtn}>▶▶</button>
           <input
             type="range" min={MIN_Y} max={MAX_Y} step={1}
             value={year}
             onChange={(e) => { setPlaying(false); setYear(+e.target.value); }}
             style={styles.range}
           />
+        </div>
+        <div style={styles.speedRow}>
+          {MULTS.map((m) => (
+            <button key={m} onClick={() => setMult(m)}
+              style={{ ...styles.speedBtn, ...(mult === m ? styles.speedOn : {}) }}>
+              {m}×
+            </button>
+          ))}
         </div>
       </div>
 
@@ -328,7 +365,35 @@ const styles = {
     color: "#fff", textShadow: "0 1px 4px rgba(0,0,0,.5)",
   },
   count: { fontSize: 13, color: "#eef3f7", marginLeft: 6 },
-  timeline: { display: "flex", alignItems: "center", gap: 10 },
+  timeline: { display: "flex", alignItems: "center", gap: 8 },
+  skipBtn: {
+    flex: "0 0 auto", width: 38, height: 38, borderRadius: "50%",
+    border: "none", background: "rgba(255,255,255,.85)", color: "#1b3a52",
+    fontSize: 12, cursor: "pointer",
+  },
+  speedRow: {
+    display: "flex", justifyContent: "center", gap: 6, marginTop: 12,
+  },
+  speedBtn: {
+    border: "none", borderRadius: 14, padding: "5px 11px",
+    background: "rgba(255,255,255,.18)", color: "#eef3f7",
+    fontSize: 12, cursor: "pointer", fontFamily: FB,
+  },
+  speedOn: { background: "#fff", color: "#1b3a52", fontWeight: 700 },
+  toast: {
+    position: "absolute", transform: "translate(-50%, calc(-100% - 12px))",
+    background: "rgba(20,30,40,.92)", color: "#fff", fontFamily: FB,
+    fontSize: 13, lineHeight: 1.3, padding: "6px 10px", borderRadius: 8,
+    whiteSpace: "nowrap", maxWidth: "70vw", overflow: "hidden",
+    textOverflow: "ellipsis", boxShadow: "0 2px 8px rgba(0,0,0,.4)",
+    cursor: "pointer", pointerEvents: "auto", zIndex: 5,
+  },
+  toastYear: { color: "#ffd27a", fontWeight: 700 },
+  toastTail: {
+    position: "absolute", left: "50%", bottom: -5, transform: "translateX(-50%)",
+    width: 0, height: 0, borderLeft: "5px solid transparent",
+    borderRight: "5px solid transparent", borderTop: "6px solid rgba(20,30,40,.92)",
+  },
   playBtn: {
     flex: "0 0 auto", width: 46, height: 46, borderRadius: "50%",
     border: "none", background: "#fff", color: "#1b3a52",
