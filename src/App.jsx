@@ -15,16 +15,17 @@ const CATS = {
 
 const MIN_Y = -4000, MAX_Y = 2030;
 
-const BASE_RATE = 25;          // 1배속 = 25년/초
-const FADE_YEARS = 60;         // 사건이 점+박스로 떠 있는 연도 폭
+const BASE_RATE = 12.5;        // 1배속 = 12.5년/초
+const FADE_YEARS = 5;          // 사건이 점+박스로 떠 있는 연도 폭
 const SPEED_PRESETS = [0.5, 1, 2, 4];   // 배속 프리셋 (±로 미세조정 가능)
 const SPEED_MIN = 0.1, SPEED_MAX = 8;
 const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
 const round1 = (v) => Math.round(v * 10) / 10;
 
-function fmtYear(y) {
+function fmtYear(y, approx) {
   const r = Math.round(y);
-  return r < 0 ? `기원전 ${-r}년` : `서기 ${r}년`;
+  const base = r < 0 ? `기원전 ${-r}년` : `서기 ${r}년`;
+  return approx ? `약 ${base}` : base;
 }
 
 const MAP_URL =
@@ -173,6 +174,35 @@ export default function Chronos() {
     [year, events]
   );
 
+  // 박스 위치 충돌 회피 — 겹치면 위로 밀어내고, 점까지는 선으로 연결
+  const boxes = useMemo(() => {
+    if (!projection) return [];
+    const out = [];
+    for (const e of active) {
+      const p = projection([e.lng, e.lat]);
+      if (!p) continue;
+      const sx = zt.x + p[0] * zt.k;
+      const sy = zt.y + p[1] * zt.k;
+      const label = (e.approx ? "약 " : "") + fmtYear(e.y) + " " + e.t;
+      const w = Math.min(label.length * 12 + 22, 300);
+      const h = 30;
+      let topY = sy - 14 - h;
+      let guard = 0, moved = true;
+      while (moved && guard++ < 60) {
+        moved = false;
+        for (const b of out) {
+          if (Math.abs(b.sx - sx) < (b.w + w) / 2 && Math.abs(b.topY - topY) < h + 5) {
+            topY = b.topY - h - 6; moved = true;
+          }
+        }
+      }
+      const prog = (year - e.y) / FADE_YEARS;
+      const op = prog > 0.8 ? Math.max(0, (1 - prog) / 0.2) : 1;
+      out.push({ e, sx, sy, topY, w, h, op });
+    }
+    return out;
+  }, [active, projection, zt, year]);
+
   const handlePlay = () => {
     if (year >= MAX_Y) setYear(MIN_Y);
     setPlaying((p) => !p);
@@ -254,23 +284,21 @@ export default function Chronos() {
         </g>
       </svg>
 
-      {/* 꼬리박스 — 현재 떠 있는 사건 라벨 (점 위에 떴다 사라짐) */}
-      {projection && active.map((e, i) => {
-        const p = projection([e.lng, e.lat]);
-        if (!p) return null;
-        const sx = zt.x + p[0] * zt.k;
-        const sy = zt.y + p[1] * zt.k;
-        const prog = (year - e.y) / FADE_YEARS;
-        const op = prog > 0.8 ? Math.max(0, (1 - prog) / 0.2) : 1;
-        return (
-          <div key={e.y + "_b" + i}
-               style={{ ...styles.toast, left: sx, top: sy, opacity: op }}
-               onClick={() => setSel(e)}>
-            <span style={styles.toastYear}>{fmtYear(e.y)}</span> {e.t}
-            <span style={styles.toastTail} />
+      {/* 꼬리박스 — 충돌 회피로 안 겹치게 배치, 점까지 선으로 연결 */}
+      {boxes.map((b, i) => (
+        <React.Fragment key={b.e.y + "_b" + i}>
+          <div style={{
+            position: "absolute", left: b.sx, top: b.topY + b.h,
+            width: 1, height: Math.max(0, b.sy - (b.topY + b.h)),
+            background: "rgba(255,255,255,.75)", transform: "translateX(-0.5px)",
+            opacity: b.op, pointerEvents: "none", zIndex: 4,
+          }} />
+          <div style={{ ...styles.toast, left: b.sx, top: b.topY, opacity: b.op }}
+               onClick={() => setSel(b.e)}>
+            <span style={styles.toastYear}>{fmtYear(b.e.y, b.e.approx)}</span> {b.e.t}
           </div>
-        );
-      })}
+        </React.Fragment>
+      ))}
 
       {/* 상단 타이틀 (오버레이) */}
       <header style={styles.header}>
@@ -316,7 +344,7 @@ export default function Chronos() {
             <div style={{ ...styles.cardTag, background: CATS[sel.c].color }}>
               {CATS[sel.c].ko}
             </div>
-            <div style={styles.cardYear}>{fmtYear(sel.y)}</div>
+            <div style={styles.cardYear}>{fmtYear(sel.y, sel.approx)}</div>
             <div style={styles.cardTitle}>{sel.t}</div>
             <div style={styles.cardDesc}>{sel.d}</div>
             <button style={styles.close} onClick={() => setSel(null)}>닫기</button>
@@ -385,7 +413,7 @@ const styles = {
     fontSize: 13, fontWeight: 700,
   },
   toast: {
-    position: "absolute", transform: "translate(-50%, calc(-100% - 12px))",
+    position: "absolute", transform: "translateX(-50%)",
     background: "rgba(20,30,40,.92)", color: "#fff", fontFamily: FB,
     fontSize: 13, lineHeight: 1.3, padding: "6px 10px", borderRadius: 8,
     whiteSpace: "nowrap", maxWidth: "70vw", overflow: "hidden",
@@ -393,11 +421,6 @@ const styles = {
     cursor: "pointer", pointerEvents: "auto", zIndex: 5,
   },
   toastYear: { color: "#ffd27a", fontWeight: 700 },
-  toastTail: {
-    position: "absolute", left: "50%", bottom: -5, transform: "translateX(-50%)",
-    width: 0, height: 0, borderLeft: "5px solid transparent",
-    borderRight: "5px solid transparent", borderTop: "6px solid rgba(20,30,40,.92)",
-  },
   playBtn: {
     flex: "0 0 auto", width: 46, height: 46, borderRadius: "50%",
     border: "none", background: "#fff", color: "#1b3a52",
