@@ -16,7 +16,7 @@ const CATS = {
 const MIN_Y = -4000, MAX_Y = 2030;
 
 const BASE_RATE = 12.5;        // 1배속 = 12.5년/초
-const FADE_YEARS = 20;          // 사건이 점+박스로 떠 있는 연도 폭
+const FADE_YEARS = 40;          // 사건이 점+박스로 떠 있는 연도 폭
 const SPEED_PRESETS = [0.5, 1, 2, 4];   // 배속 프리셋 (±로 미세조정 가능)
 const SPEED_MIN = 0.1, SPEED_MAX = 8;
 const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
