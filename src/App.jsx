@@ -49,11 +49,14 @@ function fmtYear(y) {
 const MAP_URL =
   "https://cdn.jsdelivr.net/gh/nvkelso/natural-earth-vector@master/geojson/ne_110m_admin_0_countries.geojson";
 
-// ── 현실감 색상 ──────────────────────────────────────────
-const C_OCEAN  = "#9ec5e8";   // 바다
-const C_LAND   = "#d8d2b0";   // 육지 (옅은 베이지-카키)
-const C_BORDER = "#b3a98a";   // 국경선
-const C_GRAT   = "#ffffff";   // 경위선
+// ── 위성 지구 텍스처 (equirectangular) ───────────────────
+const EARTH_URL =
+  "https://cdn.jsdelivr.net/gh/mrdoob/three.js@master/examples/textures/planets/earth_atmos_2048.jpg";
+
+// 위성 로드 실패 시 폴백용 벡터 색상
+const C_OCEAN  = "#1a3a5c";   // 바다 (위성 톤)
+const C_LAND   = "#3c6b4a";   // 육지
+const C_BORDER = "#2c4a38";   // 국경선
 
 export default function Chronos() {
   const [geo, setGeo] = useState(null);
@@ -61,6 +64,7 @@ export default function Chronos() {
   const [year, setYear] = useState(MIN_Y);
   const [playing, setPlaying] = useState(false);
   const [sel, setSel] = useState(null);
+  const [imgError, setImgError] = useState(false);
   const [size, setSize] = useState({ w: 360, h: 640 });
   const wrapRef = useRef(null);
   const rafRef = useRef(null);
@@ -90,6 +94,14 @@ export default function Chronos() {
   }, [size]);
 
   const pathGen = useMemo(() => d3.geoPath(projection), [projection]);
+
+  // 위성 이미지가 깔릴 영역 (equirectangular 전체 범위)
+  const imgRect = useMemo(() => {
+    const tl = projection([-180, 90]);
+    const br = projection([180, -90]);
+    if (!tl || !br) return null;
+    return { x: tl[0], y: tl[1], w: br[0] - tl[0], h: br[1] - tl[1] };
+  }, [projection]);
 
   // 재생 애니메이션
   useEffect(() => {
@@ -123,18 +135,22 @@ export default function Chronos() {
       {/* 지도 (화면 전체 배경) */}
       <svg width={size.w} height={size.h} style={styles.svg}>
         <rect x={0} y={0} width={size.w} height={size.h} fill={C_OCEAN} />
-        <path d={pathGen(d3.geoGraticule10())} fill="none"
-              stroke={C_GRAT} strokeWidth={0.5} opacity={0.35} />
-        {geo && geo.features.map((f, i) => (
-          <path key={i} d={pathGen(f)} fill={C_LAND}
-                stroke={C_BORDER} strokeWidth={0.4} />
-        ))}
-        {mapErr && (
-          <text x={size.w / 2} y={size.h / 2} textAnchor="middle"
-                fill="#fff" fontSize={12}>
-            지도 데이터를 불러오지 못했습니다
-          </text>
+
+        {/* 위성 텍스처 (정상) / 벡터 지도 (폴백) */}
+        {!imgError && imgRect ? (
+          <image
+            href={EARTH_URL} xlinkHref={EARTH_URL}
+            x={imgRect.x} y={imgRect.y} width={imgRect.w} height={imgRect.h}
+            preserveAspectRatio="none"
+            onError={() => setImgError(true)}
+          />
+        ) : (
+          geo && geo.features.map((f, i) => (
+            <path key={i} d={pathGen(f)} fill={C_LAND}
+                  stroke={C_BORDER} strokeWidth={0.4} />
+          ))
         )}
+
         {/* 사건 마커 */}
         {projection && shown.map((e, i) => {
           const p = projection([e.lng, e.lat]);
