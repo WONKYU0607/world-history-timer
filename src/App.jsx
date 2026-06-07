@@ -117,6 +117,23 @@ export default function Chronos() {
     return { x: tl[0], y: tl[1], w: br[0] - tl[0], h: br[1] - tl[1] };
   }, [projection]);
 
+  // 국가 라벨 (한글명·중심좌표·면적). 면적 큰 순 정렬
+  const labels = useMemo(() => {
+    if (!geo) return [];
+    return geo.features
+      .map((f) => {
+        const c = pathGen.centroid(f);
+        const a = pathGen.area(f);
+        const name = f.properties.NAME_KO || f.properties.NAME;
+        return { name, x: c[0], y: c[1], a };
+      })
+      .filter((l) => l.name && !isNaN(l.x) && !isNaN(l.y))
+      .sort((p, q) => q.a - p.a);
+  }, [geo, pathGen]);
+
+  // 줌 배율에 따라 표시할 라벨 개수 (1배→큰 나라 위주, 4배→전부)
+  const visCount = Math.round(16 + (labels.length - 16) * Math.min(1, (zt.k - 1) / 3));
+
   // 재생 애니메이션
   useEffect(() => {
     if (!playing) return;
@@ -155,12 +172,20 @@ export default function Chronos() {
         <g transform={`translate(${zt.x},${zt.y}) scale(${zt.k})`}>
           {/* 위성 텍스처 (정상) / 벡터 지도 (폴백) */}
           {!imgError && imgRect ? (
-            <image
-              href={EARTH_URL} xlinkHref={EARTH_URL}
-              x={imgRect.x} y={imgRect.y} width={imgRect.w} height={imgRect.h}
-              preserveAspectRatio="none"
-              onError={() => setImgError(true)}
-            />
+            <>
+              <image
+                href={EARTH_URL} xlinkHref={EARTH_URL}
+                x={imgRect.x} y={imgRect.y} width={imgRect.w} height={imgRect.h}
+                preserveAspectRatio="none"
+                onError={() => setImgError(true)}
+              />
+              {/* 위성 위 국경선 */}
+              {geo && geo.features.map((f, i) => (
+                <path key={i} d={pathGen(f)} fill="none"
+                      stroke="#ffffff" strokeOpacity={0.55}
+                      strokeWidth={0.6 / zt.k} />
+              ))}
+            </>
           ) : (
             geo && geo.features.map((f, i) => (
               <path key={i} d={pathGen(f)} fill={C_LAND}
@@ -193,6 +218,18 @@ export default function Chronos() {
               </g>
             );
           })}
+
+          {/* 국가명 라벨 — 줌 배율 따라 표시 개수 증가, 글자 크기 고정 */}
+          {labels.slice(0, visCount).map((l, i) => (
+            <text key={"L" + i} x={l.x} y={l.y}
+                  textAnchor="middle" dominantBaseline="middle"
+                  fontSize={11 / zt.k} fontWeight={700}
+                  fill="#fff" stroke="rgba(0,0,0,.65)"
+                  strokeWidth={2.6 / zt.k} paintOrder="stroke"
+                  style={{ pointerEvents: "none" }}>
+              {l.name}
+            </text>
+          ))}
         </g>
       </svg>
 
