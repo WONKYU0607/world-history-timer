@@ -41,10 +41,12 @@ const EVENTS = [
 
 const MIN_Y = -2600, MAX_Y = 2030;
 
-const BASE_RATE = 25;          // 1배속 = 25년/초 (느리게)
-const FADE_YEARS = 120;        // 사건이 점+박스로 떠 있는 연도 폭
-const MULTS = [0.5, 0.7, 1, 2, 3, 4];  // 배속 옵션
+const BASE_RATE = 25;          // 1배속 = 25년/초
+const FADE_YEARS = 60;         // 사건이 점+박스로 떠 있는 연도 폭
+const SPEED_PRESETS = [0.5, 1, 2, 4];   // 배속 프리셋 (±로 미세조정 가능)
+const SPEED_MIN = 0.1, SPEED_MAX = 8;
 const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
+const round1 = (v) => Math.round(v * 10) / 10;
 
 function fmtYear(y) {
   const r = Math.round(y);
@@ -191,6 +193,8 @@ export default function Chronos() {
     setPlaying((p) => !p);
   };
   const jump = (d) => { setPlaying(false); setYear((y) => clamp(y + d, MIN_Y, MAX_Y)); };
+  const stepMult = (d) => setMult((m) => clamp(round1(m + d), SPEED_MIN, SPEED_MAX));
+  const fmtMult = (m) => (Number.isInteger(m) ? m : m.toFixed(1)) + "×";
 
   return (
     <div ref={wrapRef} style={styles.root}>
@@ -307,12 +311,16 @@ export default function Chronos() {
           />
         </div>
         <div style={styles.speedRow}>
-          {MULTS.map((m) => (
+          {SPEED_PRESETS.map((m) => (
             <button key={m} onClick={() => setMult(m)}
               style={{ ...styles.speedBtn, ...(mult === m ? styles.speedOn : {}) }}>
-              {m}×
+              {fmtMult(m)}
             </button>
           ))}
+          <span style={styles.speedDiv} />
+          <button onClick={() => stepMult(-0.1)} style={styles.stepBtn}>−</button>
+          <span style={styles.multVal}>{fmtMult(mult)}</span>
+          <button onClick={() => stepMult(0.1)} style={styles.stepBtn}>＋</button>
         </div>
       </div>
 
@@ -372,7 +380,8 @@ const styles = {
     fontSize: 12, cursor: "pointer",
   },
   speedRow: {
-    display: "flex", justifyContent: "center", gap: 6, marginTop: 12,
+    display: "flex", justifyContent: "center", alignItems: "center",
+    gap: 6, marginTop: 12, flexWrap: "wrap",
   },
   speedBtn: {
     border: "none", borderRadius: 14, padding: "5px 11px",
@@ -380,6 +389,16 @@ const styles = {
     fontSize: 12, cursor: "pointer", fontFamily: FB,
   },
   speedOn: { background: "#fff", color: "#1b3a52", fontWeight: 700 },
+  speedDiv: { width: 1, height: 18, background: "rgba(255,255,255,.3)", margin: "0 2px" },
+  stepBtn: {
+    width: 30, height: 30, borderRadius: "50%", border: "none",
+    background: "rgba(255,255,255,.18)", color: "#fff",
+    fontSize: 16, lineHeight: 1, cursor: "pointer",
+  },
+  multVal: {
+    minWidth: 42, textAlign: "center", color: "#fff",
+    fontSize: 13, fontWeight: 700,
+  },
   toast: {
     position: "absolute", transform: "translate(-50%, calc(-100% - 12px))",
     background: "rgba(20,30,40,.92)", color: "#fff", fontFamily: FB,
