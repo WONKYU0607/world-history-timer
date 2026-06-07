@@ -13,10 +13,10 @@ const CATS = {
 // ── 샘플 사건 데이터 (year: 음수=기원전) ──────────────────
 // 사건 데이터는 events.json에서 로드
 
-const MIN_Y = -4000, MAX_Y = 2030;
+const MIN_Y = -3000, MAX_Y = 2030;
 
 const BASE_RATE = 12.5;        // 1배속 = 12.5년/초
-const FADE_YEARS = 40;          // 사건이 점+박스로 떠 있는 연도 폭
+const FADE_YEARS = 5;          // 사건이 점+박스로 떠 있는 연도 폭
 const SPEED_PRESETS = [0.5, 1, 2, 4];   // 배속 프리셋 (±로 미세조정 가능)
 const SPEED_MIN = 0.1, SPEED_MAX = 8;
 const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
@@ -24,8 +24,16 @@ const round1 = (v) => Math.round(v * 10) / 10;
 
 function fmtYear(y, approx) {
   const r = Math.round(y);
-  const base = r < 0 ? `기원전 ${-r}년` : `서기 ${r}년`;
-  return approx ? `약 ${base}` : base;
+  if (r < 0) return `약 기원전 ${-r}년`;     // 기원전은 모두 추정
+  return approx ? `약 서기 ${r}년` : `서기 ${r}년`;
+}
+
+// 전체 재생 시간(초)을 분·초 문자열로
+function fmtDuration(sec) {
+  const s = Math.round(sec);
+  const m = Math.floor(s / 60);
+  const r = s % 60;
+  return m > 0 ? `${m}분 ${r}초` : `${r}초`;
 }
 
 const MAP_URL =
@@ -174,32 +182,46 @@ export default function Chronos() {
     [year, events]
   );
 
-  // 박스 위치 충돌 회피 — 겹치면 위로 밀어내고, 점까지는 선으로 연결
+  // 박스 위치 충돌 회피 — 등장할 때 위치를 한 번 정하고 사라질 때까지 고정(떨림 방지)
+  const placedRef = useRef(new Map());   // key -> 점 대비 세로 오프셋
   const boxes = useMemo(() => {
     if (!projection) return [];
+    const placed = placedRef.current;
     const out = [];
+    const alive = new Set();
     for (const e of active) {
       const p = projection([e.lng, e.lat]);
       if (!p) continue;
+      const key = e.y + "|" + e.t;
+      alive.add(key);
       const sx = zt.x + p[0] * zt.k;
       const sy = zt.y + p[1] * zt.k;
-      const label = (e.approx ? "약 " : "") + fmtYear(e.y) + " " + e.t;
+      const label = fmtYear(e.y, e.approx) + " " + e.t;
       const w = Math.min(label.length * 12 + 22, 300);
       const h = 30;
-      let topY = sy - 14 - h;
-      let guard = 0, moved = true;
-      while (moved && guard++ < 60) {
-        moved = false;
-        for (const b of out) {
-          if (Math.abs(b.sx - sx) < (b.w + w) / 2 && Math.abs(b.topY - topY) < h + 5) {
-            topY = b.topY - h - 6; moved = true;
+      let off;
+      if (placed.has(key)) {
+        off = placed.get(key);             // 이미 정해진 위치 유지
+      } else {
+        let topY = sy - 14 - h;            // 충돌 회피는 등장 시 1회만
+        let guard = 0, moved = true;
+        while (moved && guard++ < 60) {
+          moved = false;
+          for (const b of out) {
+            if (Math.abs(b.sx - sx) < (b.w + w) / 2 && Math.abs(b.topY - topY) < h + 5) {
+              topY = b.topY - h - 6; moved = true;
+            }
           }
         }
+        off = topY - sy;
+        placed.set(key, off);
       }
       const prog = (year - e.y) / FADE_YEARS;
       const op = prog > 0.8 ? Math.max(0, (1 - prog) / 0.2) : 1;
-      out.push({ e, sx, sy, topY, w, h, op });
+      out.push({ e, sx, sy, topY: sy + off, w, h, op, key });
     }
+    // 사라진 사건은 캐시에서 제거
+    for (const k of [...placed.keys()]) if (!alive.has(k)) placed.delete(k);
     return out;
   }, [active, projection, zt, year]);
 
@@ -335,6 +357,9 @@ export default function Chronos() {
           <span style={styles.multVal}>{fmtMult(mult)}</span>
           <button onClick={() => stepMult(0.1)} style={styles.stepBtn}>＋</button>
         </div>
+        <div style={styles.totalTime}>
+          전체 재생 약 {fmtDuration((MAX_Y - MIN_Y) / (BASE_RATE * mult))}
+        </div>
       </div>
 
       {/* 사건 상세 시트 */}
@@ -411,6 +436,10 @@ const styles = {
   multVal: {
     minWidth: 42, textAlign: "center", color: "#fff",
     fontSize: 13, fontWeight: 700,
+  },
+  totalTime: {
+    textAlign: "center", marginTop: 8, fontSize: 11,
+    color: "#cfdae4", letterSpacing: 0.5,
   },
   toast: {
     position: "absolute", transform: "translateX(-50%)",
