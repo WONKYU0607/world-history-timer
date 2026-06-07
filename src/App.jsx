@@ -49,6 +49,15 @@ function fmtYear(y) {
 const MAP_URL =
   "https://cdn.jsdelivr.net/gh/nvkelso/natural-earth-vector@master/geojson/ne_110m_admin_0_countries.geojson";
 
+// 본토 중심으로도 영토 밖으로 나가는 나라들의 라벨 좌표 보정 [lng, lat]
+const LABEL_FIX = {
+  "아이티": [-72.147, 18.944],
+  "노르웨이": [12.221, 64.637],
+  "이스라엘": [34.691, 31.421],
+  "베트남": [107.777, 15.994],
+  "크로아티아": [15.584, 44.545],
+};
+
 // ── 위성 지구 텍스처 (equirectangular) ───────────────────
 const EARTH_URL =
   "https://cdn.jsdelivr.net/gh/mrdoob/three.js@master/examples/textures/planets/earth_atmos_2048.jpg";
@@ -102,7 +111,7 @@ export default function Chronos() {
     if (!svgRef.current) return;
     const sel = d3.select(svgRef.current);
     const zoom = d3.zoom()
-      .scaleExtent([1, 4])
+      .scaleExtent([1, 8])
       .translateExtent([[0, 0], [size.w, size.h]])
       .on("zoom", (e) => setZt({ k: e.transform.k, x: e.transform.x, y: e.transform.y }));
     sel.call(zoom).on("dblclick.zoom", null);
@@ -118,21 +127,34 @@ export default function Chronos() {
   }, [projection]);
 
   // 국가 라벨 (한글명·중심좌표·면적). 면적 큰 순 정렬
+  // 멀티폴리곤은 본토(최대 면적) 중심 사용. 그래도 영토 밖인 5개국은 직접 보정
   const labels = useMemo(() => {
     if (!geo) return [];
     return geo.features
       .map((f) => {
-        const c = pathGen.centroid(f);
-        const a = pathGen.area(f);
         const name = f.properties.NAME_KO || f.properties.NAME;
-        return { name, x: c[0], y: c[1], a };
+        let xy;
+        if (LABEL_FIX[name]) {
+          xy = projection(LABEL_FIX[name]);
+        } else if (f.geometry.type === "MultiPolygon") {
+          let best = null, bestA = -1;
+          for (const poly of f.geometry.coordinates) {
+            const pg = { type: "Polygon", coordinates: poly };
+            const a = d3.geoArea(pg);
+            if (a > bestA) { bestA = a; best = pg; }
+          }
+          xy = pathGen.centroid(best);
+        } else {
+          xy = pathGen.centroid(f);
+        }
+        return { name, x: xy[0], y: xy[1], a: pathGen.area(f) };
       })
       .filter((l) => l.name && !isNaN(l.x) && !isNaN(l.y))
       .sort((p, q) => q.a - p.a);
-  }, [geo, pathGen]);
+  }, [geo, pathGen, projection]);
 
-  // 줌 배율에 따라 표시할 라벨 개수 (1배→큰 나라 위주, 4배→전부)
-  const visCount = Math.round(16 + (labels.length - 16) * Math.min(1, (zt.k - 1) / 3));
+  // 줌 배율에 따라 표시할 라벨 개수 (1배→큰 나라 위주, 8배→전부)
+  const visCount = Math.round(16 + (labels.length - 16) * Math.min(1, (zt.k - 1) / 7));
 
   // 재생 애니메이션
   useEffect(() => {
